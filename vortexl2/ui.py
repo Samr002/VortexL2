@@ -69,8 +69,9 @@ def show_banner(config: Config):
         f"[bold white]Role:[/] [{role_color}]{role}[/]",
     ]
     
-    if config.is_configured():
+    if config.ip_iran:
         info_lines.append(f"[bold white]Iran IP:[/] [green]{config.ip_iran}[/]")
+    if config.ip_kharej:
         info_lines.append(f"[bold white]Kharej IP:[/] [cyan]{config.ip_kharej}[/]")
     
     console.print(Panel(

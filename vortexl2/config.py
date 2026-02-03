@@ -141,6 +141,14 @@ class Config:
             ports.remove(port)
             self.forwarded_ports = ports
     
+    def clear_all(self) -> None:
+        """Clear all configuration values (used when deleting tunnel)."""
+        self._config["role"] = None
+        self._config["ip_iran"] = None
+        self._config["ip_kharej"] = None
+        self._config["forwarded_ports"] = []
+        self._save()
+    
     def is_configured(self) -> bool:
         """Check if basic configuration is complete."""
         return bool(

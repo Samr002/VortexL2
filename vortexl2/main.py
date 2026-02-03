@@ -152,10 +152,7 @@ def handle_delete_tunnel(config: Config, tunnel: TunnelManager, forward: Forward
     ui.show_output(msg, "Tunnel Teardown")
     
     # Clear all config
-    config.ip_iran = None
-    config.ip_kharej = None
-    config.role = None
-    config.forwarded_ports = []
+    config.clear_all()
     
     if success:
         ui.show_success("Tunnel deleted and config cleared successfully")
