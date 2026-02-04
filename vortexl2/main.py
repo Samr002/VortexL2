@@ -113,15 +113,14 @@ def handle_create_tunnel(manager: ConfigManager):
         ui.wait_for_enter()
         return
     
-    # Create tunnel config
+    # Create tunnel config in memory (not saved yet)
     config = manager.create_tunnel(name)
-    ui.show_success(f"Tunnel '{name}' created with interface {config.interface_name}")
+    ui.show_info(f"Tunnel '{name}' will use interface {config.interface_name}")
     
     # Configure tunnel based on side
     if not ui.prompt_tunnel_config(config, side):
-        # User cancelled or error
-        manager.delete_tunnel(name)
-        ui.show_error("Configuration cancelled. Tunnel removed.")
+        # User cancelled or error - no config file was created
+        ui.show_error("Configuration cancelled.")
         ui.wait_for_enter()
         return
     
@@ -132,9 +131,11 @@ def handle_create_tunnel(manager: ConfigManager):
     ui.show_output(msg, "Tunnel Setup")
     
     if success:
+        # Only save config after successful tunnel creation
+        config.save()
         ui.show_success(f"Tunnel '{name}' created and started successfully!")
     else:
-        ui.show_error("Tunnel creation failed")
+        ui.show_error("Tunnel creation failed. Config not saved.")
     
     ui.wait_for_enter()
 

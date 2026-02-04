@@ -23,7 +23,7 @@ class TunnelConfig:
         "name": "tunnel1",
         "local_ip": None,
         "remote_ip": None,
-        "interface_ip": "10.30.30.1/24",
+        "interface_ip": "10.30.30.1/30",
         "remote_forward_ip": "10.30.30.2",
         "tunnel_id": 1000,
         "peer_tunnel_id": 2000,
@@ -33,10 +33,11 @@ class TunnelConfig:
         "forwarded_ports": [],
     }
     
-    def __init__(self, name: str, config_data: Dict[str, Any] = None):
+    def __init__(self, name: str, config_data: Dict[str, Any] = None, auto_save: bool = True):
         self._name = name
         self._config: Dict[str, Any] = {}
         self._file_path = TUNNELS_DIR / f"{name}.yaml"
+        self._auto_save = auto_save
         
         if config_data:
             self._config = config_data
@@ -61,7 +62,9 @@ class TunnelConfig:
                 self._config = {}
     
     def _save(self) -> None:
-        """Save configuration to file."""
+        """Save configuration to file if auto_save is enabled."""
+        if not self._auto_save:
+            return
         TUNNELS_DIR.mkdir(parents=True, exist_ok=True)
         
         with open(self._file_path, 'w') as f:
@@ -70,8 +73,14 @@ class TunnelConfig:
         os.chmod(self._file_path, 0o600)
     
     def save(self) -> None:
-        """Public method to save configuration."""
-        self._save()
+        """Public method to force save configuration (ignores auto_save)."""
+        TUNNELS_DIR.mkdir(parents=True, exist_ok=True)
+        
+        with open(self._file_path, 'w') as f:
+            yaml.dump(self._config, f, default_flow_style=False)
+        
+        os.chmod(self._file_path, 0o600)
+        self._auto_save = True  # Enable auto_save after manual save
     
     def delete(self) -> bool:
         """Delete this tunnel's config file."""
@@ -248,7 +257,7 @@ class ConfigManager:
         return [TunnelConfig(name) for name in self.list_tunnels()]
     
     def create_tunnel(self, name: str) -> TunnelConfig:
-        """Create a new tunnel with unique interface index."""
+        """Create a new tunnel config in memory (not saved until explicitly called)."""
         # Find next available interface index
         used_indices = set()
         for tunnel in self.get_all_tunnels():
@@ -259,8 +268,8 @@ class ConfigManager:
         while new_index in used_indices:
             new_index += 1
         
-        # Create new tunnel config
-        tunnel = TunnelConfig(name)
+        # Create new tunnel config (auto_save=False means no file created yet)
+        tunnel = TunnelConfig(name, auto_save=False)
         tunnel._config["interface_index"] = new_index
         tunnel._config["name"] = name
         
@@ -272,7 +281,7 @@ class ConfigManager:
         tunnel._config["session_id"] = 10 + new_index
         tunnel._config["peer_session_id"] = 20 + new_index
         
-        tunnel.save()
+        # Don't save here - config file will be created only after successful tunnel setup
         return tunnel
     
     def delete_tunnel(self, name: str) -> bool:
