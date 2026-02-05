@@ -13,6 +13,53 @@ from typing import Optional, List, Dict, Any
 
 CONFIG_DIR = Path("/etc/vortexl2")
 TUNNELS_DIR = CONFIG_DIR / "tunnels"
+GLOBAL_CONFIG_FILE = CONFIG_DIR / "config.yaml"
+
+
+class GlobalConfig:
+    """Global configuration for VortexL2 (forward mode, etc.)."""
+    
+    VALID_FORWARD_MODES = ["none", "haproxy"]
+    
+    def __init__(self):
+        self._config: Dict[str, Any] = {}
+        self._load()
+    
+    def _load(self) -> None:
+        """Load global configuration from file."""
+        if GLOBAL_CONFIG_FILE.exists():
+            try:
+                with open(GLOBAL_CONFIG_FILE, 'r') as f:
+                    self._config = yaml.safe_load(f) or {}
+            except Exception:
+                self._config = {}
+    
+    def _save(self) -> None:
+        """Save global configuration to file."""
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(GLOBAL_CONFIG_FILE, 'w') as f:
+            yaml.dump(self._config, f, default_flow_style=False)
+        os.chmod(GLOBAL_CONFIG_FILE, 0o600)
+    
+    @property
+    def forward_mode(self) -> str:
+        """Get forwarding mode: 'none' or 'haproxy'."""
+        mode = self._config.get("forward_mode", "none")
+        if mode not in self.VALID_FORWARD_MODES:
+            return "none"
+        return mode
+    
+    @forward_mode.setter
+    def forward_mode(self, value: str) -> None:
+        """Set forwarding mode."""
+        if value not in self.VALID_FORWARD_MODES:
+            raise ValueError(f"Invalid forward mode: {value}. Must be one of {self.VALID_FORWARD_MODES}")
+        self._config["forward_mode"] = value
+        self._save()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Return configuration as dictionary."""
+        return self._config.copy()
 
 
 class TunnelConfig:

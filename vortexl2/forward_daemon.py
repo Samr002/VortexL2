@@ -2,8 +2,8 @@
 """
 VortexL2 Forward Daemon
 
-Runs the asyncio-based port forwarding servers as a daemon service.
-This replaces the individual socat systemd services.
+Manages HAProxy-based port forwarding based on global config.
+HAProxy is NOT auto-started - user must enable forward mode first.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from vortexl2.config import ConfigManager
-from vortexl2.forward import ForwardManager
+from vortexl2.config import ConfigManager, GlobalConfig
+from vortexl2.forward import get_forward_manager, get_forward_mode
 
 
 # Setup logging
@@ -35,19 +35,36 @@ logger = logging.getLogger(__name__)
 
 
 class ForwardDaemon:
-    """Manages the forward daemon."""
+    """Manages HAProxy-based port forwarding."""
     
     def __init__(self):
         self.config_manager = ConfigManager()
-        self.forward_managers = {}
+        self.forward_manager = None
         self.running = False
     
     async def start(self):
         """Start the forward daemon."""
         logger.info("Starting VortexL2 Forward Daemon")
         
-        # Ensure HAProxy is running before we try to manage it
-        logger.info("Ensuring HAProxy service is running...")
+        # Get forward mode
+        mode = get_forward_mode()
+        logger.info(f"Forward mode: {mode}")
+        
+        if mode == "none":
+            logger.info("Port forwarding is DISABLED. Use 'sudo vortexl2' to enable HAProxy mode.")
+            self.running = True
+            # Just wait - don't start any forwarding
+            try:
+                while self.running:
+                    await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Error in forward daemon: {e}")
+            return
+        
+        # mode == "haproxy"
+        logger.info("Starting HAProxy-based port forwarding")
+        
+        # Ensure HAProxy service is running
         result = subprocess.run(
             "systemctl start haproxy",
             shell=True,
@@ -55,23 +72,20 @@ class ForwardDaemon:
             text=True
         )
         if result.returncode != 0:
-            logger.warning(f"Could not ensure HAProxy is running: {result.stderr}")
+            logger.warning(f"Could not start HAProxy: {result.stderr}")
         
         self.running = True
         
-        # Get all tunnel configurations
-        tunnels = self.config_manager.get_all_tunnels()
+        # Get forward manager
+        self.forward_manager = get_forward_manager(None)
         
-        if not tunnels:
-            logger.warning("No tunnels configured")
+        if not self.forward_manager:
+            logger.error("Failed to get HAProxy manager")
             return
         
-        # Create a single forward manager that manages HAProxy for all tunnels
-        forward_manager = ForwardManager(self.config_manager)
-        self.forward_managers['haproxy_manager'] = forward_manager
-
+        # Start all forwards
         logger.info("Starting HAProxy forwards for all configured tunnels")
-        success, msg = await forward_manager.start_all_forwards()
+        success, msg = self.forward_manager.start_all_forwards()
         if not success:
             logger.error(f"Failed to start port forwards: {msg}")
         else:
@@ -91,11 +105,9 @@ class ForwardDaemon:
         logger.info("Stopping VortexL2 Forward Daemon")
         self.running = False
         
-        # Stop the HAProxy manager
-        fm = self.forward_managers.get('haproxy_manager')
-        if fm:
+        if self.forward_manager:
             logger.info("Stopping HAProxy forwards")
-            await fm.stop_all_forwards()
+            self.forward_manager.stop_all_forwards()
         
         logger.info("Forward Daemon stopped")
 

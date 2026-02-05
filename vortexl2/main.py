@@ -15,9 +15,9 @@ import signal
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vortexl2 import __version__
-from vortexl2.config import TunnelConfig, ConfigManager
+from vortexl2.config import TunnelConfig, ConfigManager, GlobalConfig
 from vortexl2.tunnel import TunnelManager
-from vortexl2.forward import ForwardManager
+from vortexl2.forward import get_forward_manager, get_forward_mode, set_forward_mode
 from vortexl2 import ui
 
 
@@ -38,16 +38,19 @@ def check_root():
 def restart_forward_daemon():
     """Restart the forward daemon service to pick up config changes.
     
-    Also ensures HAProxy is running before restarting daemon.
+    Only starts HAProxy if forward mode is 'haproxy'.
     """
-    # First ensure HAProxy is running
-    subprocess.run(
-        "systemctl start haproxy",
-        shell=True,
-        capture_output=True
-    )
+    mode = get_forward_mode()
     
-    # Then restart the forward daemon
+    # Only start HAProxy if in haproxy mode
+    if mode == "haproxy":
+        subprocess.run(
+            "systemctl start haproxy",
+            shell=True,
+            capture_output=True
+        )
+    
+    # Restart the forward daemon
     subprocess.run(
         "systemctl restart vortexl2-forward-daemon",
         shell=True,
@@ -212,19 +215,36 @@ def handle_forwards_menu(manager: ConfigManager):
     if not config:
         return
     
-    forward = ForwardManager(config)
-    
     while True:
         ui.show_banner()
+        
+        # Get current forward mode
+        current_mode = get_forward_mode()
+        
+        # Get the appropriate manager based on mode
+        forward = get_forward_manager(config)
+        
         ui.console.print(f"[bold]Managing forwards for tunnel: [magenta]{config.name}[/][/]\n")
-        ui.console.print("[yellow]Note: Forward daemon will manage actual port forwarding[/]\n")
         
-        # Show current forwards
-        forwards = forward.list_forwards()
-        if forwards:
-            ui.show_forwards_list(forwards)
+        if current_mode == "none":
+            ui.console.print("[yellow]⚠ Port forwarding is DISABLED. Select option 8 to enable.[/]\n")
+        else:
+            ui.console.print(f"[green]Forward mode: {current_mode.upper()}[/]\n")
         
-        choice = ui.show_forwards_menu()
+        # Show current forwards if manager is available
+        if forward:
+            forwards = forward.list_forwards()
+            if forwards:
+                ui.show_forwards_list(forwards)
+        else:
+            # Show config-only forwards when mode is none
+            from .haproxy_manager import HAProxyManager
+            temp_manager = HAProxyManager(config)
+            forwards = temp_manager.list_forwards()
+            if forwards:
+                ui.show_forwards_list(forwards)
+        
+        choice = ui.show_forwards_menu(current_mode)
         
         if choice == "0":
             break
@@ -232,29 +252,39 @@ def handle_forwards_menu(manager: ConfigManager):
             # Add forwards (to config only)
             ports = ui.prompt_ports()
             if ports:
-                success, msg = forward.add_multiple_forwards(ports)
+                # Always use HAProxyManager to add to config (it just updates YAML)
+                from .haproxy_manager import HAProxyManager
+                config_manager = HAProxyManager(config)
+                success, msg = config_manager.add_multiple_forwards(ports)
                 ui.show_output(msg, "Add Forwards to Config")
-                # Restart daemon to pick up new ports
-                restart_forward_daemon()
-                ui.show_success("Forwards added. Daemon restarted to apply changes.")
+                if current_mode != "none":
+                    restart_forward_daemon()
+                    ui.show_success("Forwards added. Daemon restarted to apply changes.")
+                else:
+                    ui.show_info("Forwards saved to config. Enable forwarding mode to activate.")
             ui.wait_for_enter()
         elif choice == "2":
             # Remove forwards (from config)
             ports = ui.prompt_ports()
             if ports:
-                success, msg = forward.remove_multiple_forwards(ports)
+                from .haproxy_manager import HAProxyManager
+                config_manager = HAProxyManager(config)
+                success, msg = config_manager.remove_multiple_forwards(ports)
                 ui.show_output(msg, "Remove Forwards from Config")
-                # Restart daemon to apply changes
-                restart_forward_daemon()
-                ui.show_success("Forwards removed. Daemon restarted to apply changes.")
+                if current_mode != "none":
+                    restart_forward_daemon()
+                    ui.show_success("Forwards removed. Daemon restarted to apply changes.")
             ui.wait_for_enter()
         elif choice == "3":
             # List forwards (already shown above)
             ui.wait_for_enter()
         elif choice == "4":
             # Restart daemon
-            restart_forward_daemon()
-            ui.show_success("Forward daemon restarted.")
+            if current_mode == "none":
+                ui.show_error("Port forwarding is disabled. Enable a mode first.")
+            else:
+                restart_forward_daemon()
+                ui.show_success("Forward daemon restarted.")
             ui.wait_for_enter()
         elif choice == "5":
             # Stop daemon
@@ -263,19 +293,51 @@ def handle_forwards_menu(manager: ConfigManager):
             ui.wait_for_enter()
         elif choice == "6":
             # Start daemon
-            subprocess.run("systemctl start vortexl2-forward-daemon", shell=True)
-            ui.show_success("Forward daemon started.")
+            if current_mode == "none":
+                ui.show_error("Port forwarding is disabled. Enable a mode first.")
+            else:
+                subprocess.run("systemctl start vortexl2-forward-daemon", shell=True)
+                ui.show_success("Forward daemon started.")
             ui.wait_for_enter()
         elif choice == "7":
-            # Validate and reload HAProxy
-            ui.show_info("Validating HAProxy configuration and reloading service...")
-            global_manager = ForwardManager(manager)
-            success, msg = global_manager.validate_and_reload()
-            ui.show_output(msg, "HAProxy Validate & Reload")
-            if success:
-                ui.show_success("HAProxy reloaded successfully")
-            else:
-                ui.show_error(msg)
+            # Validate and reload
+            if current_mode == "none":
+                ui.show_error("Port forwarding is disabled. Enable a mode first.")
+            elif forward:
+                ui.show_info("Validating configuration and reloading...")
+                success, msg = forward.validate_and_reload()
+                ui.show_output(msg, "Validate & Reload")
+                if success:
+                    ui.show_success("Reloaded successfully")
+                else:
+                    ui.show_error(msg)
+            ui.wait_for_enter()
+        elif choice == "8":
+            # Change forward mode
+            mode_choice = ui.show_forward_mode_menu(current_mode)
+            new_mode = None
+            if mode_choice == "1":
+                new_mode = "none"
+            elif mode_choice == "2":
+                new_mode = "haproxy"
+            
+            if new_mode and new_mode != current_mode:
+                # Stop current forwarding before changing mode
+                if current_mode != "none":
+                    ui.show_info("Stopping current forwards...")
+                    if forward:
+                        forward.stop_all_forwards()
+                    subprocess.run("systemctl stop vortexl2-forward-daemon", shell=True)
+                
+                # Set new mode
+                set_forward_mode(new_mode)
+                ui.show_success(f"Forward mode changed to: {new_mode.upper()}")
+                
+                # If enabling a mode, offer to start
+                if new_mode != "none":
+                    if ui.Confirm.ask("Start port forwarding now?", default=True):
+                        restart_forward_daemon()
+                        ui.show_success("Forward daemon started.")
             ui.wait_for_enter()
 
 

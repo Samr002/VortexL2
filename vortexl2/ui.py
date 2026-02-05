@@ -154,8 +154,13 @@ def show_main_menu() -> str:
     return Prompt.ask("\n[bold cyan]Select option[/]", default="0")
 
 
-def show_forwards_menu() -> str:
+def show_forwards_menu(forward_mode: str = "none") -> str:
     """Display forwards submenu."""
+    # Mode indicator
+    mode_colors = {"none": "dim", "haproxy": "green", "socat": "yellow"}
+    mode_color = mode_colors.get(forward_mode, "dim")
+    mode_label = f"[{mode_color}]{forward_mode.upper()}[/]"
+    
     menu_items = [
         ("1", "Add Port Forwards"),
         ("2", "Remove Port Forwards"),
@@ -163,7 +168,8 @@ def show_forwards_menu() -> str:
         ("4", "Restart All Forwards"),
         ("5", "Stop All Forwards"),
         ("6", "Start All Forwards"),
-        ("7", "Validate & Reload HAProxy"),
+        ("7", "Validate & Reload"),
+        ("8", f"Change Forward Mode (Current: {mode_label})"),
         ("0", "Back to Main Menu"),
     ]
     
@@ -177,6 +183,28 @@ def show_forwards_menu() -> str:
     console.print(Panel(table, title="[bold white]Port Forwards[/]", border_style="green"))
     
     return Prompt.ask("\n[bold cyan]Select option[/]", default="0")
+
+
+def show_forward_mode_menu(current_mode: str) -> str:
+    """Display forward mode selection menu."""
+    modes = [
+        ("1", "none", "Disabled - Port forwarding off"),
+        ("2", "haproxy", "HAProxy - High performance port forwarding"),
+        ("0", "", "Cancel"),
+    ]
+    
+    table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+    table.add_column("Option", style="bold cyan", width=4)
+    table.add_column("Mode", style="yellow", width=10)
+    table.add_column("Description", style="white")
+    
+    for opt, mode, desc in modes:
+        current = " [green]✓[/]" if mode == current_mode else ""
+        table.add_row(f"[{opt}]", mode + current, desc)
+    
+    console.print(Panel(table, title="[bold white]Select Forward Mode[/]", border_style="yellow"))
+    
+    return Prompt.ask("\n[bold cyan]Select mode[/]", default="0")
 
 
 def show_tunnel_list(manager: ConfigManager):
