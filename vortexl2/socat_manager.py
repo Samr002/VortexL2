@@ -68,6 +68,9 @@ class SocatManager:
 
     def start_forward(self, local_port: int, remote_ip: str, remote_port: int) -> Tuple[bool, str]:
         """Start socat forward for a single port."""
+        import time
+        import os
+        
         if not self.check_socat_installed():
             return False, "socat is not installed. Install with: apt-get install socat"
         
@@ -76,20 +79,81 @@ class SocatManager:
             proc = self._get_port_process(local_port)
             return False, f"Port {local_port} is already in use by: {proc or 'unknown process'}"
         
-        # Build socat command
-        cmd = f"nohup socat TCP-LISTEN:{local_port},fork,reuseaddr TCP:{remote_ip}:{remote_port} >/dev/null 2>&1 &"
+        # Build socat command as a list for Popen
+        socat_cmd = [
+            "socat",
+            f"TCP-LISTEN:{local_port},fork,reuseaddr",
+            f"TCP:{remote_ip}:{remote_port}"
+        ]
         
-        success, stdout, stderr = run_command(cmd)
-        if not success:
-            return False, f"Failed to start socat: {stderr}"
-        
-        # Verify it started
-        import time
-        time.sleep(0.5)
-        if self._is_port_listening(local_port):
-            return True, f"Socat forward started: {local_port} → {remote_ip}:{remote_port}"
-        else:
-            return False, "Socat process did not start successfully (check logs)"
+        try:
+            # Use Popen to spawn socat as a proper background process
+            # stdout/stderr go to /dev/null, but we capture startup errors first
+            log_file = f"/tmp/socat_{local_port}.log"
+            with open(log_file, 'w') as log_f:
+                process = subprocess.Popen(
+                    socat_cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=log_f,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True  # Detach from parent process group
+                )
+            
+            # Wait a bit for socat to start listening
+            max_wait = 1.5  # seconds
+            wait_interval = 0.2
+            waited = 0
+            while waited < max_wait:
+                time.sleep(wait_interval)
+                waited += wait_interval
+                
+                # Check if process died
+                if process.poll() is not None:
+                    # Process exited - read error log
+                    try:
+                        with open(log_file, 'r') as f:
+                            error_msg = f.read().strip()
+                        os.unlink(log_file)
+                    except Exception:
+                        error_msg = "Unknown error"
+                    return False, f"Socat exited immediately: {error_msg or 'check port/IP validity'}"
+                
+                # Check if port is now listening
+                if self._is_port_listening(local_port):
+                    # Clean up log file on success
+                    try:
+                        os.unlink(log_file)
+                    except Exception:
+                        pass
+                    return True, f"Socat forward started: {local_port} → {remote_ip}:{remote_port}"
+            
+            # Timeout waiting for port - check if process is still alive
+            if process.poll() is None:
+                # Process is running but port not listening yet - give it more time
+                time.sleep(0.5)
+                if self._is_port_listening(local_port):
+                    try:
+                        os.unlink(log_file)
+                    except Exception:
+                        pass
+                    return True, f"Socat forward started: {local_port} → {remote_ip}:{remote_port}"
+                # Still not listening - kill and report
+                process.terminate()
+                return False, f"Socat started but port {local_port} not listening (check network/firewall)"
+            else:
+                # Process died during wait
+                try:
+                    with open(log_file, 'r') as f:
+                        error_msg = f.read().strip()
+                    os.unlink(log_file)
+                except Exception:
+                    error_msg = "Unknown error"
+                return False, f"Socat failed to start: {error_msg or 'unknown error'}"
+                
+        except FileNotFoundError:
+            return False, "socat binary not found in PATH"
+        except Exception as e:
+            return False, f"Failed to start socat: {str(e)}"
     
     def stop_forward(self, local_port: int) -> Tuple[bool, str]:
         """Stop socat forward for a specific port."""
