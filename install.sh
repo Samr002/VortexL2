@@ -3,7 +3,9 @@
 # VortexL2 Installer
 # L2TPv3 Tunnel Manager for Ubuntu/Debian
 #
-# Usage: curl -fsSL https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/install.sh | sudo bash
+# Usage: 
+#   bash <(curl -Ls https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/install.sh)
+#   bash <(curl -Ls https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/install.sh) v1.1.0
 #
 
 set -e
@@ -20,8 +22,12 @@ INSTALL_DIR="/opt/vortexl2"
 BIN_PATH="/usr/local/bin/vortexl2"
 SYSTEMD_DIR="/etc/systemd/system"
 CONFIG_DIR="/etc/vortexl2"
-REPO_URL="https://github.com/iliya-Developer/VortexL2.git"
+GITHUB_REPO="iliya-Developer/VortexL2"
+REPO_URL="https://github.com/${GITHUB_REPO}.git"
 REPO_BRANCH="main"
+
+# Get version from argument (if provided)
+VERSION="${1:-}"
 
 echo -e "${CYAN}"
 cat << 'EOF'
@@ -49,10 +55,75 @@ if ! command -v apt-get &> /dev/null; then
     exit 1
 fi
 
+# Function to check if a version exists on GitHub
+check_version_exists() {
+    local version="$1"
+    local url="https://github.com/${GITHUB_REPO}/archive/refs/tags/${version}.tar.gz"
+    
+    # Use curl to check if the URL exists (HEAD request)
+    if curl --output /dev/null --silent --head --fail "$url"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to get latest release version from GitHub
+get_latest_version() {
+    # Try to get latest release from GitHub API
+    local latest
+    latest=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [ -n "$latest" ]; then
+        echo "$latest"
+    else
+        echo ""
+    fi
+}
+
+# Determine which version to install
+if [ -n "$VERSION" ]; then
+    # Version specified by user
+    echo -e "${YELLOW}Checking version: ${VERSION}${NC}"
+    
+    # Ensure version starts with 'v' if not already
+    if [[ ! "$VERSION" =~ ^v ]]; then
+        VERSION="v${VERSION}"
+    fi
+    
+    if check_version_exists "$VERSION"; then
+        echo -e "${GREEN}✓ Version ${VERSION} found!${NC}"
+        DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/archive/refs/tags/${VERSION}.tar.gz"
+        INSTALL_VERSION="$VERSION"
+    else
+        echo -e "${RED}✗ Error: Version ${VERSION} not found on GitHub!${NC}"
+        echo -e "${YELLOW}Available versions can be found at: https://github.com/${GITHUB_REPO}/releases${NC}"
+        exit 1
+    fi
+else
+    # No version specified - try latest release, fallback to main branch
+    echo -e "${YELLOW}No version specified. Checking for latest release...${NC}"
+    
+    LATEST_VERSION=$(get_latest_version)
+    
+    if [ -n "$LATEST_VERSION" ]; then
+        echo -e "${GREEN}✓ Latest release: ${LATEST_VERSION}${NC}"
+        DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/archive/refs/tags/${LATEST_VERSION}.tar.gz"
+        INSTALL_VERSION="$LATEST_VERSION"
+    else
+        echo -e "${YELLOW}No releases found. Installing from main branch...${NC}"
+        DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/archive/refs/heads/${REPO_BRANCH}.tar.gz"
+        INSTALL_VERSION="main"
+    fi
+fi
+
+echo -e "${CYAN}Installing version: ${INSTALL_VERSION}${NC}"
+echo ""
+
 echo -e "${YELLOW}[1/6] Installing system dependencies...${NC}"
 apt-get update -qq
 # Install haproxy for high-performance port forwarding (not auto-started)
-apt-get install -y -qq python3 python3-pip python3-venv git iproute2 haproxy
+apt-get install -y -qq python3 python3-pip python3-venv git iproute2 haproxy curl
 
 # Install kernel modules package
 KERNEL_VERSION=$(uname -r)
@@ -73,7 +144,7 @@ l2tp_netlink
 l2tp_eth
 EOF
 
-echo -e "${YELLOW}[4/6] Installing VortexL2...${NC}"
+echo -e "${YELLOW}[4/6] Installing VortexL2 (${INSTALL_VERSION})...${NC}"
 
 # Always remove existing installation and reinstall fresh
 if [ -d "$INSTALL_DIR" ]; then
@@ -81,20 +152,16 @@ if [ -d "$INSTALL_DIR" ]; then
     rm -rf "$INSTALL_DIR"
 fi
 
-# Clone or download repository
-if command -v git &> /dev/null; then
-    git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR" 2>/dev/null || {
-        echo -e "${YELLOW}Git clone failed, trying manual download...${NC}"
-        mkdir -p "$INSTALL_DIR"
-        # If git fails, try downloading as archive
-        curl -fsSL "https://github.com/iliya-Developer/VortexL2/archive/refs/heads/${REPO_BRANCH}.tar.gz" | \
-            tar -xz -C "$INSTALL_DIR" --strip-components=1
-    }
-else
-    mkdir -p "$INSTALL_DIR"
-    curl -fsSL "https://github.com/iliya-Developer/VortexL2/archive/refs/heads/${REPO_BRANCH}.tar.gz" | \
-        tar -xz -C "$INSTALL_DIR" --strip-components=1
+# Download and extract
+mkdir -p "$INSTALL_DIR"
+echo -e "${YELLOW}Downloading from: ${DOWNLOAD_URL}${NC}"
+
+if ! curl -fsSL "$DOWNLOAD_URL" | tar -xz -C "$INSTALL_DIR" --strip-components=1; then
+    echo -e "${RED}Error: Failed to download VortexL2${NC}"
+    exit 1
 fi
+
+echo -e "${GREEN}✓ VortexL2 ${INSTALL_VERSION} downloaded successfully${NC}"
 
 # Install Python dependencies
 echo -e "${YELLOW}[5/6] Installing Python dependencies...${NC}"
@@ -116,6 +183,9 @@ cat > "$BIN_PATH" << 'EOF'
 exec python3 /opt/vortexl2/vortexl2/main.py "$@"
 EOF
 chmod +x "$BIN_PATH"
+
+# Save installed version
+echo "$INSTALL_VERSION" > "$INSTALL_DIR/.version"
 
 # Install systemd units
 echo -e "${YELLOW}[6/6] Installing systemd services...${NC}"
@@ -183,7 +253,7 @@ echo -e "${YELLOW}  ℹ Use 'sudo vortexl2' → Port Forwards → Change Mode to
 
 echo ""
 echo -e "${GREEN}============================================${NC}"
-echo -e "${GREEN}  VortexL2 Installation Complete!${NC}"
+echo -e "${GREEN}  VortexL2 ${INSTALL_VERSION} Installation Complete!${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
 echo -e "${CYAN}Next steps:${NC}"
@@ -195,8 +265,8 @@ echo ""
 echo -e "${YELLOW}Quick start:${NC}"
 echo -e "  ${GREEN}sudo vortexl2${NC}       - Open management panel"
 echo ""
-echo -e "${CYAN}For Iran side port forwarding:${NC}"
-echo -e "  Use menu option 5 to add ports like: 443,80,2053"
+echo -e "${CYAN}Install specific version:${NC}"
+echo -e "  ${GREEN}bash <(curl -Ls https://raw.githubusercontent.com/${GITHUB_REPO}/main/install.sh) v1.1.0${NC}"
 echo ""
 echo -e "${RED}Security Note:${NC}"
 echo -e "  L2TPv3 has NO encryption. For sensitive traffic,"

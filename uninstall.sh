@@ -3,7 +3,7 @@
 # VortexL2 Uninstaller
 # L2TPv3 Tunnel Manager for Ubuntu/Debian
 #
-# Usage: curl -fsSL https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/uninstall.sh | sudo bash
+# Usage: bash <(curl -Ls https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/uninstall.sh)
 #
 
 set -e
@@ -21,9 +21,7 @@ BIN_PATH="/usr/local/bin/vortexl2"
 SYSTEMD_DIR="/etc/systemd/system"
 CONFIG_DIR="/etc/vortexl2"
 LOG_DIR="/var/log/vortexl2"
-VORTEXL2_SERVICE="vortexl2-tunnel.service"
-FORWARD_DAEMON_SERVICE="vortexl2-forward-daemon.service"
-HAPROXY_SERVICE="haproxy"
+DATA_DIR="/var/lib/vortexl2"
 
 echo -e "${CYAN}"
 cat << 'EOF'
@@ -35,8 +33,7 @@ cat << 'EOF'
      \/ \___/|_|   \__\___/_/\_\______|____|
 EOF
 echo -e "${NC}"
-echo -e "${GREEN}VortexL2 Uninstaller${NC}"
-echo -e "${CYAN}L2TPv3 Tunnel Manager for Ubuntu/Debian${NC}"
+echo -e "${RED}VortexL2 Uninstaller${NC}"
 echo ""
 
 # Check root
@@ -45,53 +42,66 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Confirm uninstall
+echo -e "${YELLOW}This will completely remove VortexL2 from your system.${NC}"
+echo -e "${YELLOW}Your tunnel configurations will be deleted!${NC}"
+echo ""
+read -p "Are you sure you want to continue? (yes/no): " confirm
+
+if [[ "$confirm" != "yes" && "$confirm" != "YES" && "$confirm" != "y" ]]; then
+    echo -e "${GREEN}Uninstall cancelled.${NC}"
+    exit 0
+fi
+
+echo ""
+
 # Stop services
-echo -e "${YELLOW}Stopping VortexL2 services...${NC}"
-systemctl stop "$VORTEXL2_SERVICE" || true
-systemctl stop "$FORWARD_DAEMON_SERVICE" || true
-systemctl stop "$HAPROXY_SERVICE" || true
+echo -e "${YELLOW}[1/5] Stopping VortexL2 services...${NC}"
+systemctl stop vortexl2-tunnel.service 2>/dev/null || true
+systemctl stop vortexl2-forward-daemon.service 2>/dev/null || true
+systemctl stop haproxy.service 2>/dev/null || true
+# Stop any socat services
+systemctl stop 'vortexl2-socat-*.service' 2>/dev/null || true
+pkill -f 'socat.*TCP-LISTEN' 2>/dev/null || true
+echo -e "${GREEN}  ✓ Services stopped${NC}"
 
 # Disable services
-echo -e "${YELLOW}Disabling VortexL2 services...${NC}"
-systemctl disable "$VORTEXL2_SERVICE" || true
-systemctl disable "$FORWARD_DAEMON_SERVICE" || true
-systemctl disable "$HAPROXY_SERVICE" || true
+echo -e "${YELLOW}[2/5] Disabling VortexL2 services...${NC}"
+systemctl disable vortexl2-tunnel.service 2>/dev/null || true
+systemctl disable vortexl2-forward-daemon.service 2>/dev/null || true
+systemctl disable haproxy.service 2>/dev/null || true
+echo -e "${GREEN}  ✓ Services disabled${NC}"
 
 # Remove systemd service files
-echo -e "${YELLOW}Removing systemd service files...${NC}"
-rm -f "$SYSTEMD_DIR/$VORTEXL2_SERVICE" "$SYSTEMD_DIR/$FORWARD_DAEMON_SERVICE" "$SYSTEMD_DIR/$HAPROXY_SERVICE"
+echo -e "${YELLOW}[3/5] Removing systemd service files...${NC}"
+rm -f "$SYSTEMD_DIR/vortexl2-tunnel.service"
+rm -f "$SYSTEMD_DIR/vortexl2-forward-daemon.service"
+rm -f "$SYSTEMD_DIR/vortexl2-forward@.service"
+rm -f "$SYSTEMD_DIR"/vortexl2-socat-*.service
+rm -f /etc/modules-load.d/vortexl2.conf
+systemctl daemon-reload
+echo -e "${GREEN}  ✓ Service files removed${NC}"
 
-# Remove VortexL2 installation
-echo -e "${YELLOW}Removing VortexL2 installation files...${NC}"
+# Remove VortexL2 files
+echo -e "${YELLOW}[4/5] Removing VortexL2 files...${NC}"
 rm -rf "$INSTALL_DIR"
-
-# Remove binary path
-echo -e "${YELLOW}Removing binary path...${NC}"
 rm -f "$BIN_PATH"
+echo -e "${GREEN}  ✓ Installation files removed${NC}"
 
-# Remove configuration directories
-echo -e "${YELLOW}Removing configuration directories...${NC}"
+# Remove configuration and data
+echo -e "${YELLOW}[5/5] Removing configuration and data...${NC}"
 rm -rf "$CONFIG_DIR"
-
-# Remove logs and other data directories
-echo -e "${YELLOW}Removing log and data directories...${NC}"
 rm -rf "$LOG_DIR"
+rm -rf "$DATA_DIR"
+echo -e "${GREEN}  ✓ Configuration removed${NC}"
 
-# Remove HAProxy (if installed by the script)
-echo -e "${YELLOW}Removing HAProxy...${NC}"
-apt-get remove --purge -y haproxy
-
-# Remove dependencies installed by the script
-echo -e "${YELLOW}Removing installed dependencies...${NC}"
-apt-get remove --purge -y python3 python3-pip python3-venv git iproute2
-
-# Clean up any leftover packages
-echo -e "${YELLOW}Cleaning up leftover packages...${NC}"
-apt-get autoremove -y
-apt-get clean
-
+echo ""
 echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}  VortexL2 Uninstallation Complete!${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
-echo -e "${CYAN}VortexL2 has been successfully uninstalled from your system.${NC}"
+echo -e "${CYAN}VortexL2 has been successfully removed.${NC}"
+echo ""
+echo -e "${YELLOW}Note: HAProxy was NOT removed (you may be using it for other purposes).${NC}"
+echo -e "${YELLOW}To remove HAProxy: sudo apt remove haproxy${NC}"
+echo ""

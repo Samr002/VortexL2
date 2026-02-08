@@ -23,11 +23,21 @@ A modular, production-quality CLI tool for managing multiple L2TPv3 tunnels with
 - 📦 One-liner installation
 - 🎯 Fully configurable tunnel IDs
 
-## 📦 Quick Install
+## 📦 Installation
+
+### Install Latest Version
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/install.sh)
 ```
+
+### Install Specific Version
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/install.sh) v1.1.0
+```
+
+> Available versions: [GitHub Releases](https://github.com/iliya-Developer/VortexL2/releases)
 
 ## 🚀 First Run
 
@@ -59,8 +69,8 @@ Each tunnel needs:
 ### 4. Enable Port Forwarding (IRAN side only)
 
 1. Select "Port Forwards" in the menu
-2. **Enable HAProxy** (option 8 → select haproxy)
-3. Add ports like: `443,80,2053`
+2. **Enable HAProxy** (option 6 → select haproxy)
+3. Add ports like: `443,80,2053` or range `443-450`
 
 > ⚠️ **Port forwarding is DISABLED by default.** You must enable HAProxy mode manually.
 
@@ -104,7 +114,7 @@ journalctl -u vortexl2-forward-daemon -f
 
 ```yaml
 # /etc/vortexl2/config.yaml (global)
-forward_mode: haproxy  # or: none
+forward_mode: haproxy  # or: none, socat
 
 # /etc/vortexl2/tunnels/tunnel1.yaml
 name: tunnel1
@@ -148,11 +158,7 @@ forwarded_ports:
 ## 🔄 Uninstall
 
 ```bash
-sudo systemctl stop vortexl2-tunnel vortexl2-forward-daemon
-sudo systemctl disable vortexl2-tunnel vortexl2-forward-daemon
-sudo rm -rf /opt/vortexl2 /etc/vortexl2 /var/lib/vortexl2 /var/log/vortexl2
-sudo rm /usr/local/bin/vortexl2 /etc/systemd/system/vortexl2-*
-sudo systemctl daemon-reload
+bash <(curl -Ls https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/uninstall.sh)
 ```
 
 ## 📄 License
