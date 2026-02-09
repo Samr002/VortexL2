@@ -28,16 +28,16 @@ A modular, production-quality CLI tool for managing multiple L2TPv3 tunnels with
 ### Install Latest Version
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/Samr002/VortexL2/main/install.sh)
 ```
 
 ### Install Specific Version
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/iliya-Developer/VortexL2/main/install.sh) v1.1.0
+bash <(curl -Ls https://raw.githubusercontent.com/Samr002/VortexL2/main/install.sh) v1.1.0
 ```
 
-> Available versions: [GitHub Releases](https://github.com/iliya-Developer/VortexL2/releases)
+> Available versions: [GitHub Releases](https://github.com/Samr002/VortexL2/releases)
 
 ## 🚀 First Run
 
